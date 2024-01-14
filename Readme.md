@@ -23,6 +23,5 @@ This project uses [Panda3D](https://www.panda3d.org/) and python:
 
 ## Execute
 
-   python3 swarm.py 
-   
+    python3 swarm.py    
 

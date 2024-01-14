@@ -16,6 +16,18 @@ from basesimulation import BaseSimulation, BaseSimulationWithDrawer
 
 
 
+
+
+def createFish( x, y, z, model, scalingRatio,  idx):
+    fishActor = FishActor(model)
+    fishActor.setPos(x, y, z)
+    fishActor.setHpr(random.uniform(-5,5), 0, random.uniform(-2,2))
+    fishActor.name = f"fish_{idx}"
+    fishActor.setScale(scalingRatio *  fishActor.length)
+    return fishActor
+
+
+
 class FishActor(Actor):
 
     def __init__(self, model, **kwargs):
@@ -38,19 +50,48 @@ class FishActor(Actor):
         # 
         self.neighbours=[]
     
+
+    def get3DGridCoords(self, gridDimentions):
+        pos = self.getPos()
+        cs = gridDimentions[0]
+        xMin = -gridDimentions[1]*cs/2
+        yMin = -gridDimentions[2]*cs/2
+        zMin = -gridDimentions[3]*cs/2
+        x = (pos[0]-xMin)//cs
+        y = (pos[1]-yMin)//cs
+        z = (pos[2]-zMin)//cs            
+        coords = (int(x),int(y),int(z))
+        return coords
+
+
     def setCube(self, cube):
         self.cube=cube
     
     def getCube(self):
         return self.cube
     
-    def setNeighbours(self, neighbours):
+#    def setNeighbours(self, neighbours):
         # print(f"Neighbours = {neighbours}")
-        self.neighbours=neighbours
+#        self.neighbours=neighbours
     
     def getNeighbours(self):
         return self.neighbours
-    
+
+    def computeNeighBours(self, gridDimentions, gridMapping, radius = 2):
+        
+        cubeCoords = self.getCube()
+        neighbours = []
+        for x in range(max(0, cubeCoords[0]-radius), min(gridDimentions[1], cubeCoords[0]+radius)):
+            for y in range(max(0, cubeCoords[1]-radius), min(gridDimentions[2], cubeCoords[1]+radius)):
+                for z in range(max(0, cubeCoords[2]-radius), min(gridDimentions[3], cubeCoords[2]+radius)):
+                        key = (x,y,z)
+                        if key in gridMapping:
+                            for f in gridMapping[key]:
+                                neighbours.append(f)
+        self.neighbours=neighbours
+        return neighbours
+
+
     def getTargetIncidence(self, dim, sign):
         y=0
         if sign==-1:
@@ -185,33 +226,26 @@ class FishActor(Actor):
                 hpr[2]+= rotate_step_roll
                 self.setHpr(hpr)
 
-
-                #if dim==1:
-                #    sys.exit(0)
-
-                #if dim==2 and sign==-1:
-                #    sys.exit(0)
-
             else:
                 # clear incidence
                 self.storeTargetIncidence(dim,sign, None)
 
 
-        
 
-    def computeMove(self, rootNode, fishArray, tankDimensions):
+
+    def swim(self, rootNode, neighbours, tankDimensions):
         # Implement fish movement logic here
         dt = globalClock.getDt()
     
-        # Compute influence
-        #print(self.getPos())
-        #print(type(rootNode))
-        #print(fishArray)
 
+        ############################################
+        # Compute influence from neighbours
+        print(f" fish {self.name} neighbours => {neighbours}")
+         
+
+        ############################################
         # Move with the resulting speed 
-        #self.speedVec*dt
         # Need to translate speed to the fish referencial
-        
         transMat = self.getTransform().getMat()
         # Transform the local speed vector to the global coordinate system
         globalSpeedVec = transMat.xformVec(self.speedVec)
@@ -220,9 +254,14 @@ class FishActor(Actor):
         # Update the fish's position by the global speed vector
         self.setPos(self.getPos() + globalSpeedVec)
 
-        # Collision avoidance
 
+        ############################################
+        # Collision avoidance
         self.stayInTank(tankDimensions, rootNode, globalSpeedVec)
+
+        self.displaySpeedArrow()
+
+    def displaySpeedArrow(self):
 
         arrow_node_name = "speed_arrow"
 
