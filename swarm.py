@@ -51,8 +51,11 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         # create the Tank
         self.setupTank(TANK_DIMENSION, thickness=5.0, color=[0.4,0.75,1])
 
+        self.setupEnvironment()
+
         # Create fish group
-        self.fishSwarm = self.createSwarm(w=5, l=4, spacing=60)
+        self.fishSwarm = self.createSwarm(w=7, l=5, spacing=50)
+        #self.fishSwarm = self.createSwarm(w=1, l=1, spacing=60)
 
         # Init the spatial gr
         grid, gridCubes, gridDimentions = mkSpatialGrid(TANK_DIMENSION,5)
@@ -64,7 +67,26 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         # maps cube to fish
         # (x,y,z) => [fish_idx1, fish_idx2]
         self.gridMapping={}
+       
+        self.setTopView()
+        #self.setSideView()
 
+    def setupEnvironment(self):
+         self.environment={
+            "attractors": [],
+            "repulsors": [],
+            "aligners" : []
+        }
+
+        #attractor_path = mkCube([5,5,5], 1, [1,0,0])
+        #attractor_path.reparentTo(self.render)
+        #attractor_path.setPos(Vec3(-1000,300,0))
+        #self.environment["attractors"].append(attractor_path)
+
+        #repulsor_path = mkCube([5,5,5], 1, [1,0,0])
+        #repulsor_path.reparentTo(self.render)
+        #repulsor_path.setPos(Vec3(500,100,0))
+        #self.environment["repulsors"].append(repulsor_path)
 
     def setupTank(self, dimentions=Vec3(1,1,1), thickness=1, color=[1,1,1]):
         
@@ -123,6 +145,10 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         if self.freeze:
             return task.cont
 
+        if random.randint(0,100)==100:
+            for attractor in self.environment["attractors"]:
+                attractor.setPos(int(TANK_DIMENSION[0]*random.uniform(-0.8, 0.8)), int(TANK_DIMENSION[1]*random.uniform(-0.8, 0.8)), int(TANK_DIMENSION[2]*random.uniform(-0.8, 0.8)))
+
         # the the 3D Cube grid to partition the space
         # map each fish to a cube
         self.computeSpacialDistribution(DISPLAY_CUBES)
@@ -132,9 +158,12 @@ class FishTankSimulation(BaseSimulationWithDrawer):
             neighboursIdx=fish.computeNeighBours(self.gridDimentions, self.gridMapping, 2)
             neighbours=[]
             for idx in neighboursIdx:
-                neighbours.append(self.fishSwarm[idx])
-            print(f" fish {fish.name} => {neighbours}")
-            fish.swim(self.render, neighbours, TANK_DIMENSION)
+                if self.fishSwarm[idx].name !=fish.name:
+                    neighbours.append(self.fishSwarm[idx])
+            if len(neighbours)>6:
+                neighbours.sort(key = lambda f : (f.getPos()-fish.getPos()).length())
+                neighbours=neighbours[:6]
+            fish.swim(self.render, neighbours, TANK_DIMENSION, self.environment)
         return task.cont
 
 if __name__ == "__main__":

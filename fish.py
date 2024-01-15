@@ -1,5 +1,5 @@
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import AmbientLight, DirectionalLight, Vec3, Vec4
+from panda3d.core import AmbientLight, DirectionalLight, Vec3, Vec4, LMatrix4f
 from direct.actor.Actor import Actor
 from panda3d.core import PointLight, KeyboardButton, MouseWatcher
 from panda3d.core import LineSegs, NodePath
@@ -15,18 +15,49 @@ from panda3d.core import OrthographicLens,PerspectiveLens
 from basesimulation import BaseSimulation, BaseSimulationWithDrawer
 
 
+CONFIG = { 
+        "tankAvoid":0.3,
+        "fishCollisionRadius":10,
+        "fishAlignRadius":20,
+        "fishAttractdRadius":30,
+        "catchMargin": 10
+        }
 
-
+INTERACTION_MAX_RADIUS=800
 
 def createFish( x, y, z, model, scalingRatio,  idx):
     fishActor = FishActor(model)
     fishActor.setPos(x, y, z)
-    fishActor.setHpr(random.uniform(-5,5), 0, random.uniform(-2,2))
+    fishActor.setHpr(random.uniform(-8,8), 0, random.uniform(-5,5))
+    
     fishActor.name = f"fish_{idx}"
     fishActor.setScale(scalingRatio *  fishActor.length)
     return fishActor
 
 
+
+def convertDirectionToHpr(adjustment):
+    adj_XY = Vec3(adjustment[0], adjustment[1], 0)
+    adj_XZ = Vec3(adjustment[0],0,adjustment[2])
+    angleH = normAngle(- adj_XY.normalized().signed_angle_deg(Vec3(1,0,0), Vec3(0,0,1)))
+    angleR = normAngle(- adj_XZ.normalized().signed_angle_deg(Vec3(1,0,0), Vec3(0,1,0)))
+
+    if abs(angleR) > 80 :
+        # fish are not supposed to do loopings
+        angleR = angleR / 10
+    return Vec3(angleH, 0, angleR)
+
+def normAngle(angle):
+    angle = angle %360
+    if angle==0:
+        return 0
+    sign = angle / abs(angle)
+    if (abs(angle)>180):
+        angle = - sign*(360- abs(angle))
+    return angle
+
+def normAngleVec(angleVec):
+    return Vec3(normAngle(angleVec[0]), normAngle(angleVec[1]), normAngle(angleVec[2]))
 
 class FishActor(Actor):
 
@@ -49,6 +80,8 @@ class FishActor(Actor):
         self.cube=None
         # 
         self.neighbours=[]
+
+        self.escapeTimeout=0
     
 
     def get3DGridCoords(self, gridDimentions):
@@ -63,16 +96,11 @@ class FishActor(Actor):
         coords = (int(x),int(y),int(z))
         return coords
 
-
     def setCube(self, cube):
         self.cube=cube
     
     def getCube(self):
         return self.cube
-    
-#    def setNeighbours(self, neighbours):
-        # print(f"Neighbours = {neighbours}")
-#        self.neighbours=neighbours
     
     def getNeighbours(self):
         return self.neighbours
@@ -88,9 +116,8 @@ class FishActor(Actor):
                         if key in gridMapping:
                             for f in gridMapping[key]:
                                 neighbours.append(f)
-        self.neighbours=neighbours
+        
         return neighbours
-
 
     def getTargetIncidence(self, dim, sign):
         y=0
@@ -107,61 +134,65 @@ class FishActor(Actor):
     def _normHpr(self):
         hpr = self.getHpr()
         for i in range(3):
-            hpr[i] = self._normAngle(hpr[i])
+            hpr[i] = normAngle(hpr[i])
         self.setHpr(hpr)
         return hpr
 
     def _fastestPath(self, target, start):
         return min(target-start, target-start+2*180, target-start-2*180, key=abs)
 
-    def _normAngle(self, angle):
-        angle = angle %360
-        if angle==0:
-            return 0
-        sign = angle / abs(angle)
-        if (abs(angle)>180):
-            angle = - sign*(360- abs(angle))
-        return angle
-
     def stayInTank(self, tankDimensions, rootNode, globalSpeedVec):
-
-        avoidanceRadius = 80  # Distance at which fish start turning
 
         # Get fish position
         fishPos = self.getPos()
 
+        ##########################################
+        # Catch fish before they exit the tank !
+        escapeHpr = Vec3(0,0,0)
+        escapeXYZ= Vec3(0,0,0)
+        for dim, sign in [(0, 1), (0, -1), (1, 1), (1, -1), (2, 1), (2, -1)]:
+
+            # Calculate distance to the current face
+            #distance = abs(sign* tankDimensions[dim] - fishPos[dim])
+            distance = tankDimensions[dim] - sign*fishPos[dim]
+            #print(f"distance {dim} {sign} = {distance}")
+            # check if we are already outside of the limit
+            # and still moving in the wrong direction
+            hpr=self.getHpr()
+            margin = CONFIG["catchMargin"]
+            if (distance < margin) and sign*globalSpeedVec[dim]>0:
+                if dim==0:
+                    escapeHpr[0]+= (180-2*hpr[0])
+                    escapeXYZ+= Vec3(-sign*margin, 0,0)
+                elif dim==1:
+                    escapeHpr[0]+=-2*hpr[0]
+                    escapeXYZ+= Vec3(0,-sign*margin, 0)
+                elif dim==2:
+                    escapeHpr[2]+=-2*hpr[2]
+                    escapeXYZ+= Vec3(0,0,-sign*margin)
+        if escapeHpr.length()>0:
+            self.setHpr(normAngleVec(self.getHpr() + escapeHpr))
+            self.setPos(self.getPos() + escapeXYZ)
+            self.storeTargetIncidence(dim,sign, [0,0])
+            self.escapeTimeout=20
+            return    
+            
+        ##################################
+        # compute move to avoid the borders
         # Check each face of the tank
         for dim, sign in [(0, 1), (0, -1), (1, 1), (1, -1), (2, 1), (2, -1)]:
 
             hpr=self._normHpr()
 
-            # check if we are already outside of the limit
-            if (sign > 0 and fishPos[dim] > tankDimensions[dim]) or (sign<0 and fishPos[dim] < -tankDimensions[dim]):
-                fishPos[dim] = sign* (tankDimensions[dim]-5)
-                if dim==0:
-                    hpr[0]=0 if sign <0 else 180
-                elif dim==1:
-                    hpr[0]=90 if sign <0 else -90
-                elif dim==2:
-                    hpr[2]=-30 if sign <0 else 30
-                # reset previously stored 
-                self.setPos(fishPos)
-                self.setHpr(hpr)
-                self.storeTargetIncidence(dim,sign, [0,0])    
-                # print(f"LOST {dim} {sign}")
-                return
-
             # Calculate distance to the current face
             distance = abs(sign* tankDimensions[dim] - fishPos[dim])
-            
             debug=False
 
-            if distance < tankDimensions[dim]*0.2:
+            if distance < tankDimensions[dim]*CONFIG["tankAvoid"]:
 
                 if debug: print(f"Avoid trajectory for dimention {dim} {sign}")
 
                 target_incidence = self.getTargetIncidence(dim, sign)
-
                 if (target_incidence==None):
                     # no move to finish
                     # check if we actually need to do anything
@@ -198,7 +229,7 @@ class FishActor(Actor):
                             target_degree_head = incidence_degree_head
                             target_degree_roll=-incidence_degree_roll
                     
-                    target_incidence = [self._normAngle(target_degree_head), self._normAngle(target_degree_roll)]
+                    target_incidence = [normAngle(target_degree_head), normAngle(target_degree_roll)]
                     if debug: print(f"computed target = {target_incidence}")
                     self.storeTargetIncidence(dim,sign, target_incidence)
                 else:
@@ -231,59 +262,151 @@ class FishActor(Actor):
                 self.storeTargetIncidence(dim,sign, None)
 
 
+    def computeInfluence(self, neighbours, environment):
+        #print(f" fish {self.name} neighbours => {neighbours}")
+        
+        adjustment = Vec3(0,0,0)
+        adjustHPR = Vec3(0,0,0)
+        transMat = self.getTransform().getMat()
+        iTransMat=LMatrix4f(transMat)
+        iTransMat.invert_in_place()  
+
+        attractors = []
+        attractors.extend(environment["attractors"])
+
+        repulsors = []
+        repulsors.extend(environment["repulsors"])
+
+        aligners = []
+        aligners.extend(environment["aligners"])
+
+        for f in neighbours:
+            d = self.get_distance(f)
+
+            if d < CONFIG["fishCollisionRadius"]:
+                repulsors.append(f)
+            elif d < CONFIG["fishAlignRadius"]:
+                aligners.append(f)
+            elif d < CONFIG["fishAttractdRadius"]:
+                attractors.append(f)
+
+        #print(f"fish {self.name}=> neighbours:{len(neighbours)}; attractors={len(attractors)}; repulsors={len(repulsors)}; :aligners = {len(aligners)}")
+
+        for aligner in aligners:
+            adjustHPR += (aligner.getHpr() - self.getHpr())*globalClock.getDt()            
+        idx=0
+        self.deleteArrows("attractor_")
+        for attractor in attractors:
+            # initial positions are in the global referential
+            adjustmentG = attractor.getPos()-self.getPos()
+            # translate in the fish referential to be able to draw the arrow
+            adjustment = iTransMat.xformVec(adjustmentG)
+            # only attracted by what the fish can see: forward and not too far
+            arrow_name = f"attractor_{self.name}_{idx}"
+            if adjustment[0]<0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+                self.deleteArrow(arrow_name)
+                continue
+            # display arrow
+            self.displayArrow(arrow_name, adjustment, 1, Vec3(0,1,0))
+            # convert to HPR
+            adjustmentHPR = convertDirectionToHpr(adjustment)
+            adjustmentHPR = normAngleVec(adjustmentHPR)
+            #print(f"adjustmentHPR => {adjustmentHPR} Current HPR = {self.getHpr()}")
+            adjustHPR += adjustmentHPR*globalClock.getDt()
+            idx+=1
+
+        idx=0
+        self.deleteArrows("repulsor_")
+        for repulsor in repulsors:
+            # initial positions are in the global referential
+            adjustmentG = -(repulsor.getPos()-self.getPos())
+            # translate in the fish referential to be able to draw the arrow
+            adjustment = iTransMat.xformVec(adjustmentG)
+            # only attracted by what the fish can see: forward and not too far
+            arrow_name = f"repulsor_{self.name}_{idx}"
+            if adjustment[0]>0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+                self.deleteArrow(arrow_name)
+                continue
+            # display arrow
+            self.displayArrow(arrow_name, adjustment*-1, 1, Vec3(1,0,0))
+            # convert to HPR
+            adjustmentHPR = convertDirectionToHpr(adjustment)
+            adjustmentHPR = normAngleVec(adjustmentHPR)
+            #print(f"adjustmentHPR => {adjustmentHPR} Current HPR = {self.getHpr()}")
+            adjustHPR += adjustmentHPR*globalClock.getDt()
+            idx+=1
+
+        # Apply changes
+        self.safeSetHpr(self.getHpr() + adjustHPR)
+
+    def safeSetHpr(self, hpr):
+
+        roll = normAngle(hpr[2])
+        if (roll < -45):
+            roll = -45
+        if (roll > 45):
+            roll = 45           
+        self.setHpr(hpr[0], hpr[1], roll)
 
 
-    def swim(self, rootNode, neighbours, tankDimensions):
-        # Implement fish movement logic here
-        dt = globalClock.getDt()
+    def swim(self, rootNode, neighbours, tankDimensions, environment):
     
-
         ############################################
-        # Compute influence from neighbours
-        print(f" fish {self.name} neighbours => {neighbours}")
-         
-
-        ############################################
-        # Move with the resulting speed 
         # Need to translate speed to the fish referencial
         transMat = self.getTransform().getMat()
         # Transform the local speed vector to the global coordinate system
         globalSpeedVec = transMat.xformVec(self.speedVec)
-        # Scale the speed by the time delta for consistent movement over time
-        globalSpeedVec *= dt
-        # Update the fish's position by the global speed vector
-        self.setPos(self.getPos() + globalSpeedVec)
+        
+        #print(f"Tranformation Matrix = {transMat}")
 
+        if self.escapeTimeout>0:
+            # do not distruct trajectory when fish is escaping collision
+            self.escapeTimeout-=1
+        else:
+            ############################################
+            # Compute influence from neighbours
+            self.computeInfluence(neighbours, environment) 
+
+            ############################################
+            # Collision avoidance
+            self.stayInTank(tankDimensions, rootNode, globalSpeedVec)
 
         ############################################
-        # Collision avoidance
-        self.stayInTank(tankDimensions, rootNode, globalSpeedVec)
+        # Move with the resulting speed 
+        # Scale the speed by the time delta for consistent movement over time
+        globalSpeedVec *= globalClock.getDt()
+        # Update the fish's position by the global speed vector
+        self.setPos(self.getPos() + globalSpeedVec)
+        self.displayArrow("speed_arrow", self.speedVec, 0.3, Vec3(0,0,1))
 
-        self.displaySpeedArrow()
 
-    def displaySpeedArrow(self):
-
-        arrow_node_name = "speed_arrow"
-
+    def deleteArrows(self, arrow_node_name_prefix):
+        for npath in self.getChildren():
+            if  npath.name.startswith(arrow_node_name_prefix):
+                npath.remove_node()
+    
+    def deleteArrow(self, arrow_node_name):
         # get child the hard way since find does not work
         #arrow_node = self.find(f"render/{self.name}/{arrow_node_name}")
-        idx=0
         for npath in self.getChildren():
             if  arrow_node_name in npath.name:
                 npath.remove_node()
-            else:
-                idx+=1
+                break
+            
+    def displayArrow(self, arrow_node_name, vect, ratio, color):
+
+        self.deleteArrow(arrow_node_name)
 
         # draw speed arrow
         lines = LineSegs()
         lines.setThickness(2)  
         
-        lines.setColor(1, 0, 0)
+        lines.setColor(color)
         
         lines.moveTo(0, 0, 0)
-        lines.drawTo(self.speedVec.x * 0.3, self.speedVec.y* 0.3, self.speedVec.z* 0.3)
+        lines.drawTo(vect.x * ratio, vect.y* ratio, vect.z* ratio)
         line_node = lines.create()
         
         arrow_node = NodePath(line_node)
-        arrow_node.name = "speed_arrow"
+        arrow_node.name = arrow_node_name
         arrow_node.reparentTo(self)
