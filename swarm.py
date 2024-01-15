@@ -16,7 +16,7 @@ from basesimulation import BaseSimulation, BaseSimulationWithDrawer
 from fish import FishActor, createFish
 from factory import mkCube, mkSpatialGrid
 
-TANK_DIMENSION = Vec3(1600,600, 200)
+TANK_DIMENSION = Vec3(1600,900, 200)
 
 DISPLAY_CUBES=True
 
@@ -54,7 +54,8 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         self.setupEnvironment()
 
         # Create fish group
-        self.fishSwarm = self.createSwarm(w=7, l=5, spacing=50)
+        self.setupSwarm()
+
         #self.fishSwarm = self.createSwarm(w=1, l=1, spacing=60)
 
         # Init the spatial gr
@@ -68,8 +69,23 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         # (x,y,z) => [fish_idx1, fish_idx2]
         self.gridMapping={}
        
+        #self.freeze=True
         self.setTopView()
         #self.setSideView()
+    
+    def setupSwarm(self):
+
+        for npath in self.render.getChildren():
+            if  npath.name.startswith("fish_"):
+                npath.remove_node()
+ 
+        #self.fishSwarm = self.createSwarm(w=7, l=5, spacing=50)
+        self.fishSwarm = self.createTriangleSwarm(15, 8, spacing=60)
+        #self.fishSwarm = self.createTriangleSwarm(2, 2, spacing=50)
+        
+
+    def resetSimulation(self):
+        self.setupSwarm()
 
     def setupEnvironment(self):
          self.environment={
@@ -110,6 +126,27 @@ class FishTankSimulation(BaseSimulationWithDrawer):
                 fish.reparentTo(self.render)
                 fishSwarm.append(fish)
         return fishSwarm
+    
+    def createTriangleSwarm(self, w=10, max_l=5, spacing=100):
+        fishSwarm = []
+        modelName = "fish-ani"
+        model = self.getModel(modelName)
+        scalingRatio = self.getModelScaling(modelName)
+        l=0
+        for i in range(w):
+            if l< max_l:
+                l+=1
+            for j in range(l):
+                # Calculate the x and y positions for the fish
+                x = ( w / 2 - i) * spacing 
+                y = (j - l / 2) * spacing 
+                z = 0  
+                # Create and add the fish to the array
+                fish = createFish(x,y,z,model, scalingRatio, len(fishSwarm))
+                fish.reparentTo(self.render)
+                fishSwarm.append(fish)
+        return fishSwarm
+    
 
     def computeSpacialDistribution(self, display_non_empty_cube=False):
 

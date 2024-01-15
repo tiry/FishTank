@@ -19,8 +19,11 @@ CONFIG = {
         "tankAvoid":0.3,
         "fishCollisionRadius":10,
         "fishAlignRadius":20,
-        "fishAttractdRadius":30,
-        "catchMargin": 10
+        "fishAttractdRadius":50,
+        "catchMargin": 10,
+        "cohesion" : 4,
+        "escapeTimeout" : 30,
+        "FOV": 110
         }
 
 INTERACTION_MAX_RADIUS=800
@@ -174,7 +177,7 @@ class FishActor(Actor):
             self.setHpr(normAngleVec(self.getHpr() + escapeHpr))
             self.setPos(self.getPos() + escapeXYZ)
             self.storeTargetIncidence(dim,sign, [0,0])
-            self.escapeTimeout=20
+            self.escapeTimeout=CONFIG["escapeTimeout"]
             return    
             
         ##################################
@@ -244,10 +247,11 @@ class FishActor(Actor):
                 if debug: print(f"degrees_to_rotate roll = {degrees_to_rotate_roll}")
 
                 #  compute step size depending on remaining speed and distance*0.7
-                time_to_colision = 0.7* distance/self.speedVec.length()
+                multiplier = max(5, 10* self.speedVec.length() / distance)
+                #print(f"multiplier = {multiplier}")
                 dt = globalClock.getDt() 
-                rotate_step_head = degrees_to_rotate_head/time_to_colision * dt 
-                rotate_step_roll = degrees_to_rotate_roll/time_to_colision * dt
+                rotate_step_head = degrees_to_rotate_head * dt * multiplier
+                rotate_step_roll = degrees_to_rotate_roll * dt * multiplier
 
                 if debug: print(f"rotate_step head {rotate_step_head}")
                 if debug: print(f"rotate_step roll {rotate_step_roll}")
@@ -282,7 +286,6 @@ class FishActor(Actor):
 
         for f in neighbours:
             d = self.get_distance(f)
-
             if d < CONFIG["fishCollisionRadius"]:
                 repulsors.append(f)
             elif d < CONFIG["fishAlignRadius"]:
@@ -291,9 +294,28 @@ class FishActor(Actor):
                 attractors.append(f)
 
         #print(f"fish {self.name}=> neighbours:{len(neighbours)}; attractors={len(attractors)}; repulsors={len(repulsors)}; :aligners = {len(aligners)}")
-
+        
+        # Aligners
+        idx=0
+        self.deleteArrows("aligner_")
         for aligner in aligners:
-            adjustHPR += (aligner.getHpr() - self.getHpr())*globalClock.getDt()            
+            # compiute aligner position : to know if we need to take into account
+            adjustmentG = aligner.getPos()-self.getPos()
+            adjustment = iTransMat.xformVec(adjustmentG)
+            # convert to HPR
+            adjustmentHPR = convertDirectionToHpr(adjustment)
+            adjustmentHPR = normAngleVec(adjustmentHPR)
+            arrow_name = f"aligner_{self.name}_{idx}"
+            if abs(adjustmentHPR[0])>CONFIG["FOV"]:
+                self.deleteArrow(arrow_name)
+                continue
+            # Align native HPR (not derived from displacement)
+            adjustHPR += (aligner.getHpr() - self.getHpr())*globalClock.getDt()                   
+            # display arrow
+            self.displayArrow(arrow_name, adjustment, 1, Vec3(0,1,1))
+            idx+=1
+        
+        # Attractors
         idx=0
         self.deleteArrows("attractor_")
         for attractor in attractors:
@@ -301,20 +323,22 @@ class FishActor(Actor):
             adjustmentG = attractor.getPos()-self.getPos()
             # translate in the fish referential to be able to draw the arrow
             adjustment = iTransMat.xformVec(adjustmentG)
-            # only attracted by what the fish can see: forward and not too far
-            arrow_name = f"attractor_{self.name}_{idx}"
-            if adjustment[0]<0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
-                self.deleteArrow(arrow_name)
-                continue
-            # display arrow
-            self.displayArrow(arrow_name, adjustment, 1, Vec3(0,1,0))
             # convert to HPR
             adjustmentHPR = convertDirectionToHpr(adjustment)
             adjustmentHPR = normAngleVec(adjustmentHPR)
             #print(f"adjustmentHPR => {adjustmentHPR} Current HPR = {self.getHpr()}")
+            arrow_name = f"attractor_{self.name}_{idx}"
+            # only attracted by what the fish can see: forward and not too far
+            #if adjustment[0]<0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+            if abs(adjustmentHPR[0])>CONFIG["FOV"] or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+                self.deleteArrow(arrow_name)
+                continue
+            # display arrow
+            self.displayArrow(arrow_name, adjustment, 1, Vec3(0,1,0))
             adjustHPR += adjustmentHPR*globalClock.getDt()
             idx+=1
 
+        # Repulsors
         idx=0
         self.deleteArrows("repulsor_")
         for repulsor in repulsors:
@@ -322,22 +346,23 @@ class FishActor(Actor):
             adjustmentG = -(repulsor.getPos()-self.getPos())
             # translate in the fish referential to be able to draw the arrow
             adjustment = iTransMat.xformVec(adjustmentG)
-            # only attracted by what the fish can see: forward and not too far
+            # convert to HPR
+            adjustmentHPR = convertDirectionToHpr(adjustment)
+            adjustmentHPR = normAngleVec(adjustmentHPR)
             arrow_name = f"repulsor_{self.name}_{idx}"
-            if adjustment[0]>0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+            # only attracted by what the fish can see: forward and not too far
+            #if adjustment[0]>0 or adjustmentG.length()>INTERACTION_MAX_RADIUS:
+            if (adjustmentHPR[0])>CONFIG["FOV"] or adjustmentG.length()>INTERACTION_MAX_RADIUS:
                 self.deleteArrow(arrow_name)
                 continue
             # display arrow
             self.displayArrow(arrow_name, adjustment*-1, 1, Vec3(1,0,0))
-            # convert to HPR
-            adjustmentHPR = convertDirectionToHpr(adjustment)
-            adjustmentHPR = normAngleVec(adjustmentHPR)
             #print(f"adjustmentHPR => {adjustmentHPR} Current HPR = {self.getHpr()}")
             adjustHPR += adjustmentHPR*globalClock.getDt()
             idx+=1
 
         # Apply changes
-        self.safeSetHpr(self.getHpr() + adjustHPR)
+        self.safeSetHpr(self.getHpr() + adjustHPR*CONFIG["cohesion"])
 
     def safeSetHpr(self, hpr):
 

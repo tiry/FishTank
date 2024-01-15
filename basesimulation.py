@@ -274,9 +274,23 @@ class BaseSimulationWithDrawer(BaseSimulation):
                                                   frameSize=btnSize)
 
 
+        self.resetButton = DirectButton(text="Reset", scale=0.05, 
+                                          command=self.resetSimulation, parent=self.drawer,
+                                          pos=(drawerPosition + margin , 0, 0.72),  # Adjust pos as needed
+                                          frameSize=btnSize,
+                                          text_align=TextNode.ACenter,  # Center text
+                                          relief=DGG.FLAT,  # Flat relief for modern look
+                                          frameColor=normalColor,  # Normal color
+                                          )
+        self.resetButton['frameColor'] = (normalColor, rolloverColor, rolloverColor, normalColor)
+
+
         # Initially, the drawer is closed 
         self.drawerOpen = False
         self.drawer.hide()
+
+    def resetSimulation(self):
+        pass
 
     def toggleFreeze(self, status=None):
         self.freeze = not self.freeze
