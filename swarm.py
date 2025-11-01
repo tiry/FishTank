@@ -41,9 +41,11 @@ class FishTankSimulation(BaseSimulationWithDrawer):
         self.setupDrawer()
 
         # Pre-load models
+        # NOTE: fish-ani.gltf causes segfault with Panda3D 1.10.15 and Python 3.12
+        # Using koifish.egg instead which is more compatible
         modelMappings = {
             "fish": { "path": "koi_low.gltf", "scale": 0.012},
-            "fish-ani": { "path" : "fish-ani.gltf", "scale": 0.8}, 
+            "fish-ani": { "path" : "koifish.egg", "scale": 0.8},  # Changed from fish-ani.gltf to koifish.egg
             "fish-egg": { "path" : "koifish.egg", "scale": 0.8} 
         }
         self.loadModels(modelMappings)
@@ -206,4 +208,3 @@ class FishTankSimulation(BaseSimulationWithDrawer):
 if __name__ == "__main__":
     app = FishTankSimulation()
     app.run()
-
