@@ -1,1 +1,1 @@
-model-cache-dir
+model-cache-dir cache

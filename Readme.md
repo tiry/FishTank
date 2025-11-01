@@ -73,6 +73,17 @@ The control panel provides buttons for:
 - **Pause** - Pause/unpause the simulation
 - **Reset** - Reset fish positions
 
+## Screen shots
+
+### Top view with panel
+
+<img src="img/simu_panel.png"></img>
+
+### 3D View
+
+<img src="img/3d.png"></img>
+
+
 ## Known Issues
 
 The original `fish-ani.gltf` model causes a segmentation fault with Panda3D 1.10.15 and Python 3.12 due to GLTF loader compatibility issues. The application now uses `koifish.egg` as a workaround, which is fully compatible.
